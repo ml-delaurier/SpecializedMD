@@ -2,6 +2,10 @@
 
 A comprehensive medical education platform focused on colorectal surgery techniques, combining multimedia content, expert annotations, and AI-powered learning assistance.
 
+<div align="center">
+  <img src="assets\logo.webp" alt="SpecializedMD Logo" width="800">
+</div>
+
 ## Project Overview
 
 SpecializedMD is designed to create an enriched learning environment by:
@@ -16,17 +20,21 @@ SpecializedMD is designed to create an enriched learning environment by:
 ```
 SpecializedMD/
 ├── api/                    # Backend API endpoints
-├── core/                   # Core business logic
-│   ├── content/           # Content management
-│   ├── annotation/        # Annotation processing
-│   └── qa/                # Question-Answer generation
-├── data/                  # Data storage
-│   ├── lectures/          # Raw lecture content
-│   ├── annotations/       # Professor annotations
-│   └── external/          # External literature
-├── models/                # AI model implementations
-├── web/                   # Web interface
-└── utils/                 # Utility functions
+├── assets/                # Project assets and media
+├── core/                  # Core business logic
+│   ├── content/          # Content management
+│   ├── annotation/       # Annotation processing
+│   ├── settings/         # Application settings
+│   ├── rag/             # Retrieval-augmented generation
+│   └── qa/              # Question-Answer generation
+├── data/                 # Data storage
+│   ├── lectures/         # Raw lecture content
+│   ├── annotations/      # Professor annotations
+│   └── external/         # External literature
+├── models/               # AI model implementations
+├── services/            # External service integrations
+├── web/                 # Web interface
+└── utils/               # Utility functions
 ```
 
 ## Features
@@ -49,25 +57,34 @@ SpecializedMD/
 4. Interactive Platform
    - Real-time annotation tools
    - Student feedback system
-   - Community discussions
+   - Settings management with secure API key storage
 
-## Technology Stack
+## Configuration
 
-- Backend: Python with FastAPI
-- Frontend: React with TypeScript
-- Database: PostgreSQL
-- AI/ML: PyTorch, Transformers
-- Storage: AWS S3 for media files
-- Search: Elasticsearch
+The platform uses a secure settings management system for handling API keys and configuration:
+
+- API keys are stored securely in the user's home directory
+- Automatic backup creation before settings changes
+- User-friendly configuration UI
+- Support for multiple external services:
+  - PubMed/NCBI API for medical literature
+  - AWS S3 for content storage
+  - Groq and DeepSeek for AI models
+  - UMLS for medical terminology
 
 ## Getting Started
 
-[Installation and setup instructions will be added as development progresses]
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Configure API keys using the settings UI:
+   ```python
+   from core.settings import show_settings
+   show_settings()
+   ```
 
 ## Contributing
 
-[Contribution guidelines will be added]
-
-## License
-
-[License information will be added]
+We welcome contributions! Please see our contributing guidelines for more information.
