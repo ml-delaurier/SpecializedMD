@@ -1,0 +1,15 @@
+{
+    "api_keys": {
+        "deepseek": "",
+        "openai": ""
+    },
+    "paths": {
+        "content_dir": "content",
+        "transcripts_dir": "transcripts",
+        "media_dir": "media"
+    },
+    "app": {
+        "theme": "dark",
+        "window_size": "1200x800"
+    }
+}

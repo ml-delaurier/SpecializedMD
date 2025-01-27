@@ -1,3 +1,4 @@
+
 """
 TranscriptionService: Handles audio transcription using the Groq API.
 Supports various audio formats and provides options for customizing transcription parameters.
@@ -9,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Union
 import logging
-from groq import Groq
+from openai import OpenAI
 from pydub import AudioSegment
 
 class TranscriptionService:
@@ -25,9 +26,21 @@ class TranscriptionService:
         
         Args:
             api_key (str, optional): Groq API key. If not provided, will look for
-                                   GROQ_API_KEY environment variable.
+                                   stored API key in settings.
         """
-        self.client = Groq(api_key=api_key)
+        from core.settings import SettingsManager
+        
+        if not api_key:
+            settings = SettingsManager()
+            api_key = settings.get_api_key("groq")
+            
+        if not api_key:
+            raise ValueError("Groq API key not found. Please set it in Settings -> API Keys.")
+            
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.groq.com/openai/v1"
+        )
         self.logger = logging.getLogger(__name__)
         
     def transcribe_file(self,

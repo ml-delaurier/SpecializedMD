@@ -44,6 +44,7 @@ PyYAML
 # LLM Dependencies
 deepseek
 tenacity  # For retry logic
+openai
 
 # NLP and Text Processing
 nltk
@@ -55,12 +56,6 @@ beautifulsoup4  # For HTML parsing
 PyPDF2  # For basic PDF operations
 pdf2image  # For PDF to image conversion
 fitz  # PyMuPDF's fitz module
-
-# Medical Text Processing
-umls-api  # For medical terminology
-scispacy  # Scientific/medical text processing
-en-core-sci-md @ https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.0/en_core_sci_md-0.5.0.tar.gz
-biopython  # For Entrez and other bioinformatics tools
 
 # Utilities
 python-dotenv

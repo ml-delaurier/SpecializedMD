@@ -9,6 +9,7 @@ A comprehensive medical education platform focused on colorectal surgery techniq
 ## Project Overview
 
 SpecializedMD is designed to create an enriched learning environment by:
+
 - Managing multimedia content (video, audio, transcripts)
 - Supporting professor annotations and cut-away explanations
 - Integrating external medical literature and research
@@ -85,6 +86,4 @@ The platform uses a secure settings management system for handling API keys and 
    show_settings()
    ```
 
-## Contributing
 
-We welcome contributions! Please see our contributing guidelines for more information.
