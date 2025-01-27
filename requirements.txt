@@ -1,0 +1,71 @@
+# Core dependencies
+fastapi
+uvicorn
+python-multipart
+sqlalchemy
+psycopg2-binary
+pydantic
+
+# AI and ML
+torch
+transformers
+sentence-transformers
+einops  # Required for Moondream
+
+# Media processing
+moviepy
+whisper
+opencv-python
+python-vlc
+
+# Audio Processing Dependencies
+groq
+pydub
+
+# UI
+customtkinter
+pillow
+packaging
+
+# Storage and search
+boto3
+elasticsearch
+
+# Vision Analysis Dependencies
+numpy
+PyMuPDF  # For PDF processing
+moondream  # For surgical vision analysis
+
+# Batch Processing Dependencies
+pandas
+openpyxl
+PyYAML
+
+# LLM Dependencies
+deepseek
+tenacity  # For retry logic
+
+# NLP and Text Processing
+nltk
+spacy  # For NLP tasks
+scikit-learn  # For text classification
+beautifulsoup4  # For HTML parsing
+
+# PDF Processing
+PyPDF2  # For basic PDF operations
+pdf2image  # For PDF to image conversion
+fitz  # PyMuPDF's fitz module
+
+# Medical Text Processing
+umls-api  # For medical terminology
+scispacy  # Scientific/medical text processing
+en-core-sci-md @ https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.0/en_core_sci_md-0.5.0.tar.gz
+biopython  # For Entrez and other bioinformatics tools
+
+# Utilities
+python-dotenv
+loguru
+tqdm
+requests
+aiohttp  # For async HTTP requests
+python-dateutil  # For date parsing
