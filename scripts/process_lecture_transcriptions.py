@@ -27,6 +27,59 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+class TranscriptionProcessor:
+    """Handles processing of medical lecture transcriptions."""
+    
+    def __init__(self, api_key: Optional[str] = None):
+        """
+        Initialize the transcription processor.
+        
+        Args:
+            api_key (str, optional): API key for LLM services
+        """
+        self.analyzer = TranscriptionAnalyzer(api_key=api_key)
+        self.transcription_service = TranscriptionService()
+        self.logger = logging.getLogger(__name__)
+    
+    def process_lecture(self, input_file: Path, output_dir: Optional[Path] = None) -> Dict:
+        """
+        Process a single lecture transcription.
+        
+        Args:
+            input_file (Path): Path to input transcription or audio file
+            output_dir (Path, optional): Output directory for enhanced data
+            
+        Returns:
+            Dict: Processing results and enhanced data
+        """
+        return process_single_lecture(input_file, output_dir)
+    
+    def batch_process(self, input_dir: Path, output_dir: Path, max_workers: int = 4) -> Dict:
+        """
+        Process multiple lectures in parallel.
+        
+        Args:
+            input_dir (Path): Directory containing lecture files
+            output_dir (Path): Output directory for enhanced data
+            max_workers (int): Maximum number of parallel workers
+            
+        Returns:
+            Dict: Batch processing results and statistics
+        """
+        return batch_process_lectures(input_dir, output_dir, max_workers)
+    
+    def create_index(self, output_dir: Path) -> Dict:
+        """
+        Create a consolidated RAG index from processed lectures.
+        
+        Args:
+            output_dir (Path): Directory containing processed lecture data
+            
+        Returns:
+            Dict: Consolidated RAG index
+        """
+        return create_rag_index(output_dir)
+
 def process_single_lecture(
     input_file: Path,
     output_dir: Path,
@@ -289,15 +342,18 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    # Initialize transcription processor
+    processor = TranscriptionProcessor()
+    
     # Process lectures
-    batch_summary = batch_process_lectures(
+    batch_summary = processor.batch_process(
         input_dir=input_dir,
         output_dir=output_dir,
         max_workers=args.max_workers
     )
     
     # Create consolidated RAG index
-    rag_index = create_rag_index(output_dir)
+    rag_index = processor.create_index(output_dir)
     
     logger.info("Processing complete!")
     logger.info(f"Processed {batch_summary['total_lectures']} lectures")

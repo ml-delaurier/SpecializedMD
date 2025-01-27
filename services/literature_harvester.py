@@ -1,6 +1,6 @@
 """
 Literature Harvester: Automatically fetches and processes medical literature
-from PubMed related to colorectal surgery.
+from PubMed related to colorectal surgery using DeepSeek API.
 """
 
 import os
@@ -8,7 +8,6 @@ import json
 import boto3
 import requests
 import PyPDF2
-from Bio import Entrez
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -17,13 +16,13 @@ import logging
 import fitz
 import re
 from typing import Tuple, Any
-from ..core.settings import SettingsManager
+from core.settings import SettingsManager
+from core.llm.deepseek_api import DeepSeekAPI
 
 class LiteratureHarvester:
-    """Harvests and processes medical literature from PubMed."""
+    """Harvests and processes medical literature using DeepSeek API."""
     
-    def __init__(self,
-                 output_dir: str):
+    def __init__(self, output_dir: str):
         """
         Initialize the harvester.
         
@@ -33,36 +32,13 @@ class LiteratureHarvester:
         self.logger = logging.getLogger(__name__)
         self.settings = SettingsManager()
         
-        # Configure Entrez
-        email = self.settings.get_api_key('PUBMED_EMAIL')
-        if email:
-            Entrez.email = email
+        # Configure DeepSeek
+        deepseek_api_key = self.settings.get_api_key('DEEPSEEK_API_KEY')
+        if deepseek_api_key:
+            self.deepseek = DeepSeekAPI(api_key=deepseek_api_key)
         else:
-            self.logger.warning("No PubMed email found in settings")
-        
-        api_key = self.settings.get_api_key('PUBMED_API_KEY')
-        if api_key:
-            Entrez.api_key = api_key
-        else:
-            self.logger.warning("No PubMed API key found in settings")
-        
-        # Configure AWS client
-        aws_access_key = self.settings.get_api_key('AWS_ACCESS_KEY_ID')
-        aws_secret_key = self.settings.get_api_key('AWS_SECRET_ACCESS_KEY')
-        if aws_access_key and aws_secret_key:
-            self.s3_bucket = self.settings.get_api_key('AWS_S3_BUCKET')
-            if self.s3_bucket:
-                self.s3_client = boto3.client(
-                    's3',
-                    aws_access_key_id=aws_access_key,
-                    aws_secret_access_key=aws_secret_key
-                )
-            else:
-                self.logger.warning("No AWS S3 bucket found in settings")
-                self.s3_client = None
-        else:
-            self.logger.warning("AWS credentials not found in settings")
-            self.s3_client = None
+            self.logger.warning("No DeepSeek API key found in settings")
+            self.deepseek = None
         
         self.output_dir = Path(output_dir)
         self.pdf_dir = self.output_dir / "pdfs"
@@ -90,7 +66,7 @@ class LiteratureHarvester:
                              days_back: int = 7,
                              max_results: int = 50) -> List[Dict]:
         """
-        Fetch recent colorectal surgery publications.
+        Fetch recent colorectal surgery publications using DeepSeek.
         
         Args:
             days_back (int): Number of days to look back
@@ -99,74 +75,51 @@ class LiteratureHarvester:
         Returns:
             List[Dict]: List of publication metadata
         """
+        if not self.deepseek:
+            self.logger.error("DeepSeek API not configured")
+            return []
+
         self.logger.info(f"Fetching publications from last {days_back} days")
         
-        # Construct PubMed query
-        query = (
-            '(colorectal surgery[MeSH Terms]) AND '
-            '("randomized controlled trial"[Publication Type] OR '
-            '"systematic review"[Publication Type]) AND '
-            f'("{(datetime.now() - timedelta(days=days_back)).strftime("%Y/%m/%d")}"'
-            f'[Date - Publication] : "{datetime.now().strftime("%Y/%m/%d")}"[Date - Publication])'
-        )
+        # Construct search query for DeepSeek
+        query = {
+            "topic": "colorectal surgery",
+            "publication_types": ["randomized controlled trial", "systematic review"],
+            "date_range": {
+                "start": (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d"),
+                "end": datetime.now().strftime("%Y-%m-%d")
+            },
+            "max_results": max_results
+        }
         
-        # Search PubMed
-        handle = Entrez.esearch(
-            db="pubmed",
-            term=query,
-            retmax=max_results,
-            sort="pub_date"
-        )
-        record = Entrez.read(handle)
-        handle.close()
-        
-        if not record["IdList"]:
-            self.logger.info("No new publications found")
+        try:
+            # Search using DeepSeek
+            results = self.deepseek.search_medical_literature(query)
+            
+            publications = []
+            for result in results:
+                pub_data = self._extract_publication_data(result)
+                if pub_data:
+                    publications.append(pub_data)
+            
+            return publications
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching publications: {e}")
             return []
-        
-        # Fetch details for each publication
-        handle = Entrez.efetch(
-            db="pubmed",
-            id=record["IdList"],
-            rettype="medline",
-            retmode="text"
-        )
-        records = Entrez.read(handle)
-        handle.close()
-        
-        publications = []
-        for article in records["PubmedArticle"]:
-            pub_data = self._extract_publication_data(article)
-            if pub_data:
-                publications.append(pub_data)
-        
-        return publications
 
     def _extract_publication_data(self, article: Dict) -> Optional[Dict]:
-        """Extract relevant data from PubMed article."""
+        """Extract relevant data from DeepSeek article response."""
         try:
-            article_data = article["MedlineCitation"]["Article"]
-            pmid = str(article["MedlineCitation"]["PMID"])
-            
             return {
-                "pmid": pmid,
-                "title": article_data["ArticleTitle"],
-                "authors": [
-                    f"{author['LastName']} {author['ForeName']}"
-                    for author in article_data.get("AuthorList", [])
-                ],
-                "journal": article_data["Journal"]["Title"],
-                "publication_date": article_data["Journal"]["JournalIssue"]["PubDate"],
-                "abstract": article_data.get("Abstract", {}).get("AbstractText", [""])[0],
-                "mesh_terms": [
-                    mesh["DescriptorName"]
-                    for mesh in article["MedlineCitation"].get("MeshHeadingList", [])
-                ],
-                "doi": next(
-                    (id_obj["Value"] for id_obj in article_data.get("ELocationID", [])
-                    if id_obj["EIdType"] == "doi"),
-                    None
-                )
+                "pmid": article.get("pmid", ""),
+                "title": article.get("title", ""),
+                "authors": article.get("authors", []),
+                "journal": article.get("journal", ""),
+                "publication_date": article.get("publication_date", {}),
+                "abstract": article.get("abstract", ""),
+                "mesh_terms": article.get("mesh_terms", []),
+                "doi": article.get("doi")
             }
         except KeyError as e:
             self.logger.error(f"Error extracting data from article: {e}")
@@ -224,7 +177,7 @@ class LiteratureHarvester:
             
         response = requests.get(
             f"https://api.unpaywall.org/v2/{doi}",
-            params={"email": Entrez.email}
+            params={"email": "your_email@example.com"}
         )
         
         if response.status_code == 200:
@@ -244,9 +197,7 @@ class LiteratureHarvester:
 
     def extract_content(self, pdf_path: str) -> Dict[str, Any]:
         """
-        Extract and structure content from medical literature PDF.
-        Uses advanced NLP and medical domain knowledge to identify
-        and categorize key information.
+        Extract and structure content from medical literature PDF using DeepSeek.
         
         Args:
             pdf_path (str): Path to PDF file
@@ -254,61 +205,41 @@ class LiteratureHarvester:
         Returns:
             Dict: Structured content with sections, figures, references
         """
+        if not self.deepseek:
+            self.logger.error("DeepSeek API not configured")
+            return {}
+
         try:
-            # Extract raw text using PyMuPDF
+            # Extract text from PDF
             doc = fitz.open(pdf_path)
+            text = ""
+            for page in doc:
+                text += page.get_text()
             
-            # Initialize content structure
-            content = {
-                'title': '',
-                'abstract': '',
-                'sections': [],
-                'figures': [],
-                'tables': [],
-                'references': [],
-                'keywords': [],
-                'metadata': {}
+            # Use DeepSeek to analyze the content
+            analysis = self.deepseek.analyze_medical_document({
+                "text": text,
+                "document_type": "medical_research",
+                "analysis_types": [
+                    "sections",
+                    "figures",
+                    "tables",
+                    "references",
+                    "key_findings"
+                ]
+            })
+            
+            return {
+                'title': analysis.get('title', ''),
+                'abstract': analysis.get('abstract', ''),
+                'sections': analysis.get('sections', []),
+                'figures': analysis.get('figures', []),
+                'tables': analysis.get('tables', []),
+                'references': analysis.get('references', []),
+                'keywords': analysis.get('keywords', []),
+                'key_findings': analysis.get('key_findings', []),
+                'metadata': self._extract_metadata(doc)
             }
-            
-            # Extract document metadata
-            content['metadata'] = self._extract_metadata(doc)
-            
-            # Process each page
-            text_blocks = []
-            figures = []
-            tables = []
-            
-            for page_num in range(len(doc)):
-                page = doc[page_num]
-                
-                # Extract text blocks with position information
-                blocks = page.get_text("dict")["blocks"]
-                for block in blocks:
-                    if block.get("type") == 0:  # Text block
-                        text_blocks.append({
-                            'text': block.get("text", ""),
-                            'bbox': block.get("bbox"),
-                            'page': page_num
-                        })
-                    elif block.get("type") == 1:  # Image block
-                        figures.append({
-                            'bbox': block.get("bbox"),
-                            'page': page_num
-                        })
-            
-            # Process text content
-            content.update(self._process_text_content(text_blocks))
-            
-            # Extract and process figures
-            content['figures'] = self._process_figures(doc, figures)
-            
-            # Extract and process tables
-            content['tables'] = self._process_tables(doc, tables)
-            
-            # Extract references
-            content['references'] = self._extract_references(text_blocks)
-            
-            return content
             
         except Exception as e:
             self.logger.error(f"Error extracting content from {pdf_path}: {e}")
@@ -319,15 +250,7 @@ class LiteratureHarvester:
                 doc.close()
 
     def _extract_metadata(self, doc: fitz.Document) -> Dict[str, Any]:
-        """
-        Extract and process document metadata.
-        
-        Args:
-            doc (fitz.Document): PDF document
-        
-        Returns:
-            Dict: Document metadata
-        """
+        """Extract metadata from PDF document."""
         metadata = {
             'title': '',
             'authors': [],
@@ -341,330 +264,25 @@ class LiteratureHarvester:
             # Extract basic metadata
             meta = doc.metadata
             if meta:
-                metadata['title'] = meta.get('title', '')
-                if 'author' in meta:
-                    metadata['authors'] = [a.strip() for a in meta['author'].split(';')]
-                metadata['publication_date'] = meta.get('creationDate', '')
+                metadata.update({
+                    'title': meta.get('title', ''),
+                    'authors': [a.strip() for a in meta.get('author', '').split(';')],
+                    'publication_date': meta.get('creationDate', '')
+                })
                 
-            # Extract DOI using regex
-            first_page = doc[0].get_text()
-            doi_match = re.search(r'doi:?\s*(10\.\d{4,}/[-._;()/:\w]+)', first_page, re.I)
-            if doi_match:
-                metadata['doi'] = doi_match.group(1)
-                
-            # Extract journal name and keywords from first page
-            journal_patterns = [
-                r'(published\s+in\s+)(.*?)(\d{4})',
-                r'(journal\s+of\s+.*?)(\d{4}|\(|\n)',
-            ]
-            
-            for pattern in journal_patterns:
-                match = re.search(pattern, first_page, re.I)
-                if match:
-                    metadata['journal'] = match.group(2).strip()
-                    break
-                    
-            # Extract keywords
-            keywords_section = re.search(r'keywords?:?(.*?)(?:\n\n|\.|$)', 
-                                       first_page, 
-                                       re.I | re.S)
-            if keywords_section:
-                keywords = keywords_section.group(1)
-                metadata['keywords'] = [k.strip() for k in keywords.split(',')]
+            # Use DeepSeek to extract additional metadata
+            if self.deepseek:
+                first_page = doc[0].get_text()
+                enhanced_metadata = self.deepseek.extract_document_metadata({
+                    "text": first_page,
+                    "document_type": "medical_research"
+                })
+                metadata.update(enhanced_metadata)
                 
         except Exception as e:
             self.logger.warning(f"Error extracting metadata: {e}")
             
         return metadata
-
-    def _process_text_content(self, text_blocks: List[Dict]) -> Dict[str, Any]:
-        """
-        Process and structure text content from PDF blocks.
-        
-        Args:
-            text_blocks (List[Dict]): List of text blocks with position info
-        
-        Returns:
-            Dict: Processed text content
-        """
-        content = {
-            'abstract': '',
-            'sections': []
-        }
-        
-        try:
-            # Sort blocks by page and position
-            text_blocks.sort(key=lambda x: (x['page'], x['bbox'][1]))
-            
-            current_section = {
-                'title': '',
-                'content': '',
-                'subsections': []
-            }
-            
-            # Process each block
-            for block in text_blocks:
-                text = block['text'].strip()
-                
-                # Skip empty blocks
-                if not text:
-                    continue
-                    
-                # Detect section headers
-                if self._is_section_header(text, block):
-                    # Save previous section if it exists
-                    if current_section['title'] and current_section['content']:
-                        content['sections'].append(current_section)
-                        
-                    current_section = {
-                        'title': text,
-                        'content': '',
-                        'subsections': []
-                    }
-                    
-                # Detect abstract
-                elif 'abstract' in text.lower()[:20] and not content['abstract']:
-                    content['abstract'] = text
-                    
-                # Add to current section
-                else:
-                    current_section['content'] += text + '\n'
-            
-            # Add final section
-            if current_section['title'] and current_section['content']:
-                content['sections'].append(current_section)
-                
-        except Exception as e:
-            self.logger.warning(f"Error processing text content: {e}")
-            
-        return content
-
-    def _is_section_header(self, text: str, block: Dict) -> bool:
-        """
-        Determine if a text block is a section header.
-        
-        Args:
-            text (str): Text content
-            block (Dict): Text block information
-        
-        Returns:
-            bool: True if section header
-        """
-        # Common section headers in medical papers
-        section_keywords = {
-            'introduction', 'methods', 'results', 'discussion',
-            'conclusion', 'background', 'materials', 'references'
-        }
-        
-        # Check text properties
-        is_short = len(text.split()) <= 5
-        is_keyword = text.lower().split()[0] in section_keywords
-        
-        # Check formatting (assuming headers are often bold/larger)
-        font_size = block.get('size', 0)
-        is_large = font_size > 11  # Adjust threshold as needed
-        
-        return (is_short and (is_keyword or is_large))
-
-    def _process_figures(self, doc: fitz.Document, figures: List[Dict]) -> List[Dict]:
-        """
-        Process and extract figures with captions.
-        
-        Args:
-            doc (fitz.Document): PDF document
-            figures (List[Dict]): List of figure blocks
-        
-        Returns:
-            List[Dict]: Processed figures with metadata
-        """
-        processed_figures = []
-        
-        try:
-            for fig in figures:
-                page = doc[fig['page']]
-                
-                # Extract figure image
-                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                img_data = pix.tobytes()
-                
-                # Find caption
-                caption = self._find_nearby_text(page, fig['bbox'], 
-                                              pattern=r'Figure\s+\d+:?\s*(.*?)(?:\n\n|$)')
-                
-                processed_figures.append({
-                    'page': fig['page'],
-                    'caption': caption,
-                    'image_data': img_data,
-                    'bbox': fig['bbox']
-                })
-                
-        except Exception as e:
-            self.logger.warning(f"Error processing figures: {e}")
-            
-        return processed_figures
-
-    def _process_tables(self, doc: fitz.Document, tables: List[Dict]) -> List[Dict]:
-        """
-        Extract and process tables from the document.
-        
-        Args:
-            doc (fitz.Document): PDF document
-            tables (List[Dict]): List of table blocks
-        
-        Returns:
-            List[Dict]: Processed tables with data
-        """
-        processed_tables = []
-        
-        try:
-            for table in tables:
-                page = doc[table['page']]
-                
-                # Extract table caption
-                caption = self._find_nearby_text(page, table['bbox'],
-                                              pattern=r'Table\s+\d+:?\s*(.*?)(?:\n\n|$)')
-                
-                # Extract table data (simplified)
-                table_data = []
-                # TODO: Implement table structure extraction
-                
-                processed_tables.append({
-                    'page': table['page'],
-                    'caption': caption,
-                    'data': table_data,
-                    'bbox': table['bbox']
-                })
-                
-        except Exception as e:
-            self.logger.warning(f"Error processing tables: {e}")
-            
-        return processed_tables
-
-    def _find_nearby_text(self, page: fitz.Page, bbox: Tuple[float, float, float, float],
-                         pattern: str, max_distance: float = 50) -> str:
-        """
-        Find text matching pattern near a given bounding box.
-        
-        Args:
-            page (fitz.Page): PDF page
-            bbox (Tuple): Bounding box coordinates
-            pattern (str): Regex pattern to match
-            max_distance (float): Maximum distance to search
-        
-        Returns:
-            str: Found text or empty string
-        """
-        try:
-            # Get text blocks near the bbox
-            x0, y0, x1, y1 = bbox
-            nearby_text = page.get_text("dict", clip=(x0-max_distance,
-                                                    y0-max_distance,
-                                                    x1+max_distance,
-                                                    y1+max_distance))
-            
-            # Search for pattern in nearby text
-            text = ' '.join(block.get("text", "") for block in nearby_text.get("blocks", []))
-            match = re.search(pattern, text, re.S)
-            
-            return match.group(1) if match else ""
-            
-        except Exception as e:
-            self.logger.warning(f"Error finding nearby text: {e}")
-            return ""
-
-    def _extract_references(self, text_blocks: List[Dict]) -> List[Dict]:
-        """
-        Extract and process references section.
-        
-        Args:
-            text_blocks (List[Dict]): List of text blocks
-        
-        Returns:
-            List[Dict]: Structured references
-        """
-        references = []
-        
-        try:
-            # Find references section
-            ref_section = ''
-            in_references = False
-            
-            for block in text_blocks:
-                text = block['text'].lower()
-                
-                if 'references' in text[:15]:
-                    in_references = True
-                    continue
-                    
-                if in_references:
-                    ref_section += block['text'] + '\n'
-            
-            # Parse individual references
-            ref_patterns = [
-                r'\[\d+\]\s*(.*?)(?=\[\d+\]|\Z)',  # [1] Style
-                r'^\d+\.\s*(.*?)(?=^\d+\.|\Z)',    # 1. Style
-                r'^[A-Z][a-z]+.*?\(\d{4}\).*?$'    # Author (Year) Style
-            ]
-            
-            for pattern in ref_patterns:
-                matches = re.finditer(pattern, ref_section, re.M | re.S)
-                if matches:
-                    for match in matches:
-                        ref_text = match.group(1).strip()
-                        references.append(self._parse_reference(ref_text))
-                    break
-                    
-        except Exception as e:
-            self.logger.warning(f"Error extracting references: {e}")
-            
-        return references
-
-    def _parse_reference(self, ref_text: str) -> Dict[str, str]:
-        """
-        Parse a reference string into structured data.
-        
-        Args:
-            ref_text (str): Reference text
-        
-        Returns:
-            Dict: Structured reference data
-        """
-        ref_data = {
-            'authors': [],
-            'year': '',
-            'title': '',
-            'journal': '',
-            'volume': '',
-            'pages': '',
-            'doi': ''
-        }
-        
-        try:
-            # Extract DOI if present
-            doi_match = re.search(r'doi:?\s*(10\.\d{4,}/[-._;()/:\w]+)', ref_text, re.I)
-            if doi_match:
-                ref_data['doi'] = doi_match.group(1)
-            
-            # Extract year
-            year_match = re.search(r'\((\d{4})\)', ref_text)
-            if year_match:
-                ref_data['year'] = year_match.group(1)
-            
-            # Extract authors (simplified)
-            author_section = ref_text.split('(')[0]
-            ref_data['authors'] = [a.strip() for a in author_section.split(',')]
-            
-            # Extract title (text between year and journal)
-            if year_match:
-                post_year = ref_text[ref_text.find(')') + 1:]
-                title_end = post_year.find('.')
-                if title_end > 0:
-                    ref_data['title'] = post_year[:title_end].strip()
-            
-        except Exception as e:
-            self.logger.warning(f"Error parsing reference: {e}")
-            
-        return ref_data
 
     def _load_mapping(self) -> Dict:
         """Load PMID mapping from file."""

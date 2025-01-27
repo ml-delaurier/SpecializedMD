@@ -188,7 +188,7 @@ class VideoProcessor:
             # FFmpeg command for adding watermark
             cmd = [
                 "ffmpeg", "-i", str(segment_file),
-                "-vf", f"drawtext=text='{lecture_id} - %{pts\\:hms}':x=10:y=10:"
+                "-vf", f"drawtext=text='{lecture_id} - %{{pts\\:hms}}':x=10:y=10:"
                        "fontsize=24:fontcolor=white:box=1:boxcolor=black@0.5",
                 "-codec:a", "copy",
                 str(output_file)

@@ -1,9 +1,8 @@
 """
 TranscriptManager: Handles transcript generation, enrichment, and medical term correction
-using OpenAI Whisper and UMLS Metathesaurus.
+using Groq's Whisper-large-v3 and UMLS Metathesaurus.
 """
 
-import whisper
 import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
@@ -13,23 +12,24 @@ from concurrent.futures import ThreadPoolExecutor
 import nltk
 from nltk.tokenize import word_tokenize, sent_tokenize
 from nltk import pos_tag, RegexpParser
-from deepseek import DeepSeekService
+from ..llm.deepseek_service import DeepSeekService
+from ..audio.transcription_service import TranscriptionService
 
 class TranscriptManager:
     """Manages lecture transcripts with medical term enrichment."""
     
     def __init__(self, 
                  umls_api_key: str,
-                 model_type: str = "medium"):
+                 groq_api_key: Optional[str] = None):
         """
         Initialize TranscriptManager.
         
         Args:
             umls_api_key (str): API key for UMLS Metathesaurus
-            model_type (str): Whisper model type (tiny, base, small, medium, large)
+            groq_api_key (str, optional): API key for Groq transcription service
         """
         self.umls_api_key = umls_api_key
-        self.model = whisper.load_model(model_type)
+        self.transcription_service = TranscriptionService(api_key=groq_api_key)
         self.umls_cache = {}
         self.logger = None  # Initialize logger
 
@@ -51,7 +51,7 @@ class TranscriptManager:
         output_path = Path(output_dir) / lecture_id
         output_path.mkdir(parents=True, exist_ok=True)
         
-        # Step 1: Generate initial transcript
+        # Step 1: Generate initial transcript using Groq's Whisper-large-v3
         raw_transcript = self._generate_transcript(audio_path)
         
         # Step 2: Enrich with medical terms
@@ -67,7 +67,7 @@ class TranscriptManager:
             "metadata": {
                 "processed_at": datetime.now().isoformat(),
                 "audio_file": audio_path,
-                "model_type": self.model.model_type
+                "model": "whisper-large-v3"
             }
         }
         
@@ -76,7 +76,7 @@ class TranscriptManager:
 
     def _generate_transcript(self, audio_path: str) -> Dict:
         """
-        Generate initial transcript using Whisper.
+        Generate initial transcript using Groq's Whisper-large-v3.
         
         Args:
             audio_path (str): Path to audio file
@@ -84,12 +84,11 @@ class TranscriptManager:
         Returns:
             Dict: Raw transcript with timestamps
         """
-        # Use Whisper to transcribe
-        result = self.model.transcribe(
-            audio_path,
+        # Use Groq's Whisper-large-v3 to transcribe
+        result = self.transcription_service.transcribe_file(
+            file_path=audio_path,
             language="en",
-            task="transcribe",
-            verbose=False
+            timestamp_granularities=["segment", "word"]
         )
         
         return result

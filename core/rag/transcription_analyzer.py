@@ -75,12 +75,17 @@ class TranscriptionAnalyzer:
             output_dir = transcription_file.parent / "enhanced_rag"
             output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Process transcription in segments
-        segments = self._segment_transcription(
-            transcription_data["transcription"],
-            segment_length
-        )
+        # Extract transcription text and segments from Groq's format
+        if isinstance(transcription_data.get("transcription"), dict):
+            # New Groq format
+            segments = transcription_data["transcription"].get("segments", [])
+            text = transcription_data["transcription"].get("text", "")
+        else:
+            # Legacy format
+            segments = transcription_data.get("segments", [])
+            text = transcription_data.get("transcription", "")
         
+        # Process transcription in segments
         analyzed_segments = []
         for segment in segments:
             try:
@@ -99,17 +104,16 @@ class TranscriptionAnalyzer:
                 "analyzed_at": datetime.now().isoformat(),
                 "segments_count": len(analyzed_segments),
                 "total_qa_pairs": sum(len(s.qa_pairs) for s in analyzed_segments),
-                "parameters": {
-                    "segment_length": segment_length,
-                    "min_confidence": min_confidence
-                }
+                "model": transcription_data.get("metadata", {}).get("model", "unknown")
             },
-            "segments": [segment.dict() for segment in analyzed_segments]
+            "segments": [s.dict() for s in analyzed_segments]
         }
         
-        # Save results
-        self._save_enhanced_data(results, output_dir, transcription_file.stem)
-        
+        # Save enhanced RAG data
+        output_file = output_dir / f"{transcription_file.stem}_enhanced.json"
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2, ensure_ascii=False)
+            
         return results
     
     def _segment_transcription(self,
